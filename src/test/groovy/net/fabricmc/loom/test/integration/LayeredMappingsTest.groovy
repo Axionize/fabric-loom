@@ -35,6 +35,40 @@ import static net.fabricmc.loom.test.LoomTestConstants.STANDARD_TEST_VERSIONS
 import static org.gradle.testkit.runner.TaskOutcome.SUCCESS
 
 class LayeredMappingsTest extends Specification implements GradleProjectTestTrait {
+	def "unchanged layered mappings preserve Maven cache and configuration cache"() {
+		given:
+		def gradle = gradleProject(project: "minimalBase", version: DEFAULT_GRADLE)
+		gradle.buildGradle << """
+			dependencies {
+				minecraft "com.mojang:minecraft:1.21.4"
+				mappings loom.officialMojangMappings()
+			}
+		"""
+
+		when:
+		gradle.run(task: "help", configurationCache: false)
+		def mappingsDir = new File(gradle.gradleHomeDir, "caches/fabric-loom/minecraftMaven/loom/mappings")
+		def mappingJars = []
+		mappingsDir.eachFileRecurse { file ->
+			if (file.name.endsWith(".jar")) {
+				mappingJars.add(file)
+			}
+		}
+		def timestamps = mappingJars.collectEntries { [(it): it.lastModified()] }
+		gradle.run(task: "help", configurationCache: false)
+
+		then:
+		!mappingJars.empty
+		mappingJars.every { it.lastModified() == timestamps[it] }
+
+		when:
+		gradle.run(task: "help")
+		def cached = gradle.run(task: "help")
+
+		then:
+		cached.output.contains("Reusing configuration cache.")
+	}
+
 	def "build #layer"() {
 		setup:
 		def gradle = gradleProject(project: "minimalBase", version: DEFAULT_GRADLE)
