@@ -31,11 +31,13 @@ import java.io.Writer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
 import org.gradle.api.Project;
 import org.gradle.api.artifacts.Dependency;
+import org.gradle.api.artifacts.ExternalModuleDependency;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -51,16 +53,27 @@ import net.fabricmc.loom.configuration.providers.mappings.extras.annotations.Ann
 import net.fabricmc.loom.configuration.providers.mappings.extras.unpick.UnpickLayer;
 import net.fabricmc.loom.configuration.providers.mappings.unpick.UnpickMetadata;
 import net.fabricmc.loom.configuration.providers.mappings.utils.AddConstructorMappingVisitor;
+import net.fabricmc.loom.util.Checksum;
 import net.fabricmc.loom.util.ZipUtils;
 import net.fabricmc.mappingio.adapter.MappingDstNsReorder;
 import net.fabricmc.mappingio.adapter.MappingSourceNsSwitch;
 import net.fabricmc.mappingio.format.tiny.Tiny2FileWriter;
 import net.fabricmc.mappingio.tree.MemoryMappingTree;
 
-public record LayeredMappingsFactory(LayeredMappingSpec spec) {
+public final class LayeredMappingsFactory {
 	private static final String GROUP = "loom";
 	private static final String MODULE = "mappings";
 	private static final Logger LOGGER = LoggerFactory.getLogger(LayeredMappingsFactory.class);
+	private final LayeredMappingSpec spec;
+	private final List<ExternalModuleDependency> dependencies = new ArrayList<>();
+
+	public LayeredMappingsFactory(LayeredMappingSpec spec) {
+		this.spec = spec;
+	}
+
+	public LayeredMappingSpec spec() {
+		return spec;
+	}
 
 	/*
 	As we no longer have SelfResolvingDependency we now always create the mappings file after evaluation.
@@ -80,8 +93,15 @@ public record LayeredMappingsFactory(LayeredMappingSpec spec) {
 		LOGGER.info("Evaluating layer mapping: {}", mavenNotation());
 
 		final Path mavenRepoDir = configContext.extension().getFiles().getGlobalMinecraftRepo().toPath();
-		final LocalMavenHelper maven = new LocalMavenHelper(GROUP, MODULE, spec().getVersion(), null, mavenRepoDir);
 		final Path jar = resolve(configContext.project());
+		// The spec alone does not identify the Minecraft version or mapping namespaces.
+		final String version = spec.getVersion() + "." + Checksum.of(jar).sha256().hex();
+
+		for (ExternalModuleDependency dependency : dependencies) {
+			dependency.version(constraint -> constraint.require(version));
+		}
+
+		final LocalMavenHelper maven = new LocalMavenHelper(GROUP, MODULE, version, null, mavenRepoDir);
 		final Path mavenJar = maven.getOutputFile(null);
 		if (!maven.exists(null)
 				|| configContext.extension().refreshDeps()
@@ -115,7 +135,9 @@ public record LayeredMappingsFactory(LayeredMappingSpec spec) {
 	}
 
 	public Dependency createDependency(Project project) {
-		return project.getDependencies().create(mavenNotation());
+		final ExternalModuleDependency dependency = (ExternalModuleDependency) project.getDependencies().create(mavenNotation());
+		dependencies.add(dependency);
+		return dependency;
 	}
 
 	public String mavenNotation() {

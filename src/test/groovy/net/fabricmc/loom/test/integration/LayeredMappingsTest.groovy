@@ -63,6 +63,14 @@ class LayeredMappingsTest extends Specification implements GradleProjectTestTrai
 
 		when:
 		gradle.run(task: "help")
+		def other = gradleProject(project: "minimalBase", version: DEFAULT_GRADLE)
+		other.buildGradle << """
+			dependencies {
+				minecraft "com.mojang:minecraft:1.21.1"
+				mappings loom.officialMojangMappings()
+			}
+		"""
+		other.run(task: "help", configurationCache: false)
 		def cached = gradle.run(task: "help")
 
 		then:
