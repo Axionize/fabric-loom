@@ -82,7 +82,12 @@ public record LayeredMappingsFactory(LayeredMappingSpec spec) {
 		final Path mavenRepoDir = configContext.extension().getFiles().getGlobalMinecraftRepo().toPath();
 		final LocalMavenHelper maven = new LocalMavenHelper(GROUP, MODULE, spec().getVersion(), null, mavenRepoDir);
 		final Path jar = resolve(configContext.project());
-		maven.copyToMaven(jar, null);
+		final Path mavenJar = maven.getOutputFile(null);
+		if (!maven.exists(null)
+				|| configContext.extension().refreshDeps()
+				|| Files.mismatch(jar, mavenJar) != -1) {
+			maven.copyToMaven(jar, null);
+		}
 	}
 
 	public Path resolve(Project project) throws IOException {
